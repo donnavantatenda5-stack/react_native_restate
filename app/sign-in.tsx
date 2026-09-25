@@ -23,10 +23,11 @@ const Auth = () => {
   const handleLogin = async () => {
     const result = await login();
     if (result) {
-      refetch();
+      await refetch();
     } else {
       Alert.alert(
         "Sign in unavailable",
+
         "Google sign in needs a native build. You can continue as a guest.",
         [{ text: "Continue as guest", onPress: enterAsGuest }]
       );
@@ -39,6 +40,7 @@ const Auth = () => {
         contentContainerStyle={{
           height: "100%",
         }}
+        showsVerticalScrollIndicator={false}
       >
         <Image
           source={images.onboarding}
@@ -48,21 +50,21 @@ const Auth = () => {
 
         <View className="px-10">
           <Text className="text-base text-center uppercase font-rubik text-black-200">
-            Welcome To Real Scout
+            WELCOME TO REAL SCOUT
           </Text>
 
           <Text className="text-3xl font-rubik-bold text-black-300 text-center mt-2">
-            Let&apos;s Get You Closer To {"\n"}
+            {"Let's Get You\nCloser To\n"}
             <Text className="text-primary-300">Your Ideal Home</Text>
           </Text>
 
           <Text className="text-lg font-rubik text-black-200 text-center mt-12">
-            Login to Real Scout with Google
+            {"Sign in below to start exploring the\nperfect place you'll love"}
           </Text>
 
           <TouchableOpacity
             onPress={handleLogin}
-            className="bg-white shadow-md shadow-zinc-300 rounded-full w-full py-4 mt-5"
+            className="bg-primary-300 shadow-md shadow-zinc-300 rounded-full w-full py-4 mt-5"
           >
             <View className="flex flex-row items-center justify-center">
               <Image
@@ -70,16 +72,10 @@ const Auth = () => {
                 className="w-5 h-5"
                 resizeMode="contain"
               />
-              <Text className="text-lg font-rubik-medium text-black-300 ml-2">
+              <Text className="text-lg font-rubik-medium text-white ml-2">
                 Continue with Google
               </Text>
             </View>
-          </TouchableOpacity>
-
-          <TouchableOpacity onPress={enterAsGuest} className="mt-6">
-            <Text className="text-center text-primary-300 text-base font-rubik-medium">
-              Continue as guest
-            </Text>
           </TouchableOpacity>
         </View>
       </ScrollView>

@@ -12,6 +12,8 @@ import {
   View,
 } from "react-native";
 import { useState } from "react";
+import { router } from "expo-router";
+import * as ImagePicker from "expo-image-picker";
 
 import { logout } from "@/lib/appwrite";
 import { useGlobalContext } from "@/lib/global-provider";
@@ -63,6 +65,7 @@ const Profile = () => {
   const [seeding, setSeeding] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
+  const [loadingAvatar, setLoadingAvatar] = useState(false);
 
   const avatarChoices: {
     key: string;
@@ -86,9 +89,6 @@ const Profile = () => {
     })),
   ];
 
-  const handleComingSoon = (feature: string) =>
-    Alert.alert(feature, `${feature} is coming soon.`);
-
   const handleInviteFriends = async () => {
     try {
       await Share.share({
@@ -106,42 +106,79 @@ const Profile = () => {
       case "Invite Friends":
         handleInviteFriends();
         break;
+      case "My Bookings":
+        router.push("/bookings");
+        break;
+      case "Payments":
       case "Profile":
-        Alert.alert(
-          "Profile",
-          `Name: ${user?.name ?? "Guest"}\nEmail: ${user?.email ?? "Not signed in"}`
-        );
+      case "Notifications":
+      case "Security":
+      case "Language":
+      case "Help Center":
+        router.push(`/settings?section=${encodeURIComponent(title)}`);
         break;
       default:
-        handleComingSoon(title);
+        router.push("/settings?section=Help%20Center");
     }
   };
 
   const handleEditAvatar = () => setShowAvatarPicker(true);
 
-  const selectAvatar = (source: ImageSourcePropType) => {
+  const selectAvatar = async (source: ImageSourcePropType) => {
     if (typeof source === "number" || Array.isArray(source)) {
-      setAvatar("");
+      await setAvatar("");
     } else {
-      setAvatar(source.uri ?? "");
+      await setAvatar(source.uri ?? "");
     }
     setShowAvatarPicker(false);
+  };
+
+  const handleChooseFromGallery = async () => {
+    try {
+      setLoadingAvatar(true);
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          "Permission required",
+          "Allow photo access to choose a profile picture."
+        );
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        await setAvatar(result.assets[0].uri);
+        setShowAvatarPicker(false);
+      }
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : "Unable to open your gallery";
+      Alert.alert("Gallery error", message);
+    } finally {
+      setLoadingAvatar(false);
+    }
   };
 
   const handleSeed = async () => {
     setSeeding(true);
     try {
-      await seed();
+      const result = await seed();
       Alert.alert(
         "Success",
-        "Demo data seeded. Reload the app to see the properties."
+        `${result.properties} properties, ${result.agents} agents, ${result.reviews} reviews, and ${result.galleries} gallery items are ready. Reload the app to see them.`
       );
     } catch (error: unknown) {
       const message =
         error instanceof Error ? error.message : "Unknown error";
       Alert.alert(
         "Seed failed",
-        `Check that each collection allows Create/Write for Any (guests).\n\n${message}`
+        `Verify the Appwrite collection IDs and your signed-in user's permissions.\n\n${message}`
       );
     } finally {
       setSeeding(false);
@@ -150,17 +187,27 @@ const Profile = () => {
 
   const handleLogout = async () => {
     setLoggingOut(true);
-    const result = await logout();
-    if (result) {
-      setAvatar("");
+
+    try {
+      const result = await logout();
+      if (!result) {
+        Alert.alert("Error", "Failed to logout");
+        return;
+      }
+
+      await setAvatar("");
       clearFavorites();
       if (guest) {
         exitGuest();
       }
-      refetch();
-    } else {
+
+      await refetch();
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : "Unable to log out";
+      Alert.alert("Error", message);
+    } finally {
       setLoggingOut(false);
-      Alert.alert("Error", "Failed to logout");
     }
   };
 
@@ -173,7 +220,7 @@ const Profile = () => {
         <View className="flex flex-row items-center justify-between mt-5">
           <Text className="text-xl font-rubik-bold text-black-300">Profile</Text>
           <TouchableOpacity
-            onPress={() => handleComingSoon("Notifications")}
+            onPress={() => router.push("/settings?section=Notifications")}
             className="bg-primary-100 rounded-full size-10 flex items-center justify-center"
           >
             <Image source={icons.bell} className="size-5" />
@@ -194,11 +241,12 @@ const Profile = () => {
             </TouchableOpacity>
 
             <Text className="text-2xl font-rubik-bold text-black-300 mt-2">
-              {user?.name ?? "Guest"}
+              {user?.name?.trim() || "Restate User"}
             </Text>
             <Text className="text-sm font-rubik text-black-200 mt-1">
-              {user?.email ?? "Signed in as guest"}
+              {user?.email || "Signed in with Google"}
             </Text>
+
           </View>
         </View>
 
@@ -226,19 +274,24 @@ const Profile = () => {
         </View>
 
         <View className="flex flex-col mt-5 border-t pt-5 border-primary-200">
-          <TouchableOpacity
-            onPress={handleSeed}
-            disabled={seeding}
-            className="flex flex-row items-center justify-center py-3 bg-primary-100 rounded-full mb-6"
-          >
-            {seeding ? (
-              <ActivityIndicator size="small" className="text-primary-300" />
-            ) : (
-              <Text className="text-lg font-rubik-medium text-primary-300">
-                Seed Demo Data
-              </Text>
-            )}
-          </TouchableOpacity>
+          {__DEV__ && user ? (
+            <TouchableOpacity
+              onPress={handleSeed}
+              disabled={seeding}
+              className="flex flex-row items-center justify-center py-3 bg-primary-100 rounded-full mb-6"
+            >
+              {seeding ? (
+                <ActivityIndicator
+                  size="small"
+                  className="text-primary-300"
+                />
+              ) : (
+                <Text className="text-lg font-rubik-medium text-primary-300">
+                  Seed Demo Data
+                </Text>
+              )}
+            </TouchableOpacity>
+          ) : null}
 
           <SettingsItem
             icon={icons.logout}
@@ -280,6 +333,16 @@ const Profile = () => {
                 </TouchableOpacity>
               ))}
             </View>
+
+            <TouchableOpacity
+              onPress={handleChooseFromGallery}
+              disabled={loadingAvatar}
+              className="mt-6 bg-primary-100 rounded-full py-3"
+            >
+              <Text className="text-center font-rubik-medium text-primary-300">
+                {loadingAvatar ? "Opening gallery..." : "Choose from Gallery"}
+              </Text>
+            </TouchableOpacity>
 
             <TouchableOpacity
               onPress={() => setShowAvatarPicker(false)}

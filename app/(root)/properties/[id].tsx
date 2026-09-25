@@ -1,15 +1,24 @@
+import { useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Image,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
   ScrollView,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
+import DateTimePicker, {
+  DateTimePickerEvent,
+} from "@react-native-community/datetimepicker";
 import { router, useLocalSearchParams } from "expo-router";
 
 import Comment from "@/components/Comment";
+import { PropertyImage } from "@/components/Cards";
 import NoResults from "@/components/NoResults";
 
 import icons from "@/constants/icons";
@@ -18,6 +27,7 @@ import images from "@/constants/images";
 import { getPropertyById } from "@/lib/appwrite";
 import { useFavorites } from "@/lib/favorites-provider";
 import { useAppwrite } from "@/lib/useAppwrite";
+import { createBooking } from "@/lib/bookings";
 
 const facilitiesIcons: Record<string, any> = {
   Laundry: icons.laundry,
@@ -48,9 +58,28 @@ const specs = (property: Record<string, any>) => [
   },
 ];
 
+const getInitialBookingDate = () => {
+  const date = new Date();
+  date.setDate(date.getDate() + 1);
+  date.setHours(0, 0, 0, 0);
+  return date;
+};
+
+const formatBookingDate = (date: Date) =>
+  date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+
 const Property = () => {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const { isFavorite, toggleFavorite } = useFavorites();
+  const [showBookingModal, setShowBookingModal] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [bookingDate, setBookingDate] = useState(getInitialBookingDate);
+  const [guests, setGuests] = useState("1");
+  const [booking, setBooking] = useState(false);
 
   const {
     data: property,
@@ -60,6 +89,68 @@ const Property = () => {
     params: { id: id ?? "" },
     skip: !id,
   });
+
+  const handleDateChange = (
+    event: DateTimePickerEvent,
+    selectedDate?: Date
+  ) => {
+    setShowDatePicker(Platform.OS === "ios");
+    if (selectedDate) {
+      setBookingDate(selectedDate);
+    }
+    if (event.type === "dismissed") {
+      setShowDatePicker(false);
+    }
+  };
+
+  const closeBookingModal = () => {
+    setShowBookingModal(false);
+    setShowDatePicker(false);
+  };
+
+  const handleConfirmBooking = async () => {
+    if (!property) {
+      return;
+    }
+
+    const guestCount = Number(guests);
+    if (!Number.isInteger(guestCount) || guestCount < 1 || guestCount > 20) {
+      Alert.alert("Invalid guests", "Enter between 1 and 20 guests.");
+      return;
+    }
+
+    if (bookingDate.getTime() < new Date().setHours(0, 0, 0, 0)) {
+      Alert.alert("Invalid date", "Choose today or a future date.");
+      return;
+    }
+
+    try {
+      setBooking(true);
+      await createBooking({
+        property: {
+          $id: property.$id,
+          name: property.name,
+          address: property.address,
+          price: property.price,
+          image: property.image,
+        },
+        date: bookingDate,
+        guests: guestCount,
+      });
+      closeBookingModal();
+      Alert.alert(
+        "Booking confirmed",
+        `${property.name} is booked for ${formatBookingDate(bookingDate)}.`,
+        [{ text: "View bookings", onPress: () => router.push("/bookings") }]
+      );
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : "Unable to save booking";
+      Alert.alert("Booking failed", message);
+    } finally {
+      setBooking(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -76,7 +167,10 @@ const Property = () => {
   const agent = property.agent;
   const reviews = Array.isArray(property.reviews) ? property.reviews : [];
   const facilities = Array.isArray(property.facilities)
-    ? property.facilities
+    ? property.facilities.filter(
+        (item): item is string =>
+          typeof item === "string" && item.trim().length > 0
+      )
     : [];
 
   return (
@@ -86,8 +180,8 @@ const Property = () => {
         contentContainerClassName="pb-24"
       >
         <View className="relative w-full">
-          <Image
-            source={{ uri: property.image }}
+          <PropertyImage
+            item={{ $id: property.$id ?? id ?? "", image: property.image }}
             className="w-full h-72"
             resizeMode="cover"
           />
@@ -153,28 +247,34 @@ const Property = () => {
         </View>
 
         {facilities.length > 0 && (
-          <View className="px-5 mt-5 flex gap-2">
+          <View className="px-5 mt-6">
             <Text className="text-xl font-rubik-bold text-black-300">
               Facilities
             </Text>
-            <View className="flex flex-row flex-wrap justify-between mt-5 gap-4">
+            <View className="flex flex-row flex-wrap gap-3 mt-4">
               {facilities.map((item: string, index: number) => (
-                <View
-                  key={index}
-                  className="flex flex-row flex-1 items-center min-w-1/4"
-                >
-                  <Image
-                    source={facilitiesIcons[item] ?? icons.info}
-                    className="size-7"
-                  />
-                  <Text className="text-base font-rubik text-black-300 ml-2">
-                    {item}
-                  </Text>
+                <View key={`${item}-${index}`} className="w-[48%]">
+                  <View className="flex flex-row items-center min-h-16 bg-primary-100 rounded-2xl px-3 py-3">
+                    <View className="bg-white rounded-xl p-2">
+                      <Image
+                        source={facilitiesIcons[item] ?? icons.info}
+                        className="size-6"
+                        resizeMode="contain"
+                      />
+                    </View>
+                    <Text
+                      numberOfLines={2}
+                      className="flex-1 text-sm font-rubik-medium text-black-300 ml-2"
+                    >
+                      {item}
+                    </Text>
+                  </View>
                 </View>
               ))}
             </View>
           </View>
         )}
+
 
         {agent ? (
           <View className="px-5 mt-5 flex gap-2">
@@ -237,15 +337,95 @@ const Property = () => {
         <Text className="text-2xl font-rubik-bold text-primary-300">
           ${property.price}
         </Text>
-        <TouchableOpacity
-          onPress={() => Alert.alert("Book Now", "Booking is coming soon")}
-          className="bg-primary-300 rounded-full px-6 py-3"
-        >
-          <Text className="text-white font-rubik-medium text-base">Book Now</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-};
+         <TouchableOpacity
+           onPress={() => setShowBookingModal(true)}
+           className="bg-primary-300 rounded-full px-6 py-3"
+         >
+           <Text className="text-white font-rubik-medium text-base">Book Now</Text>
+         </TouchableOpacity>
+       </View>
 
-export default Property;
+       <Modal
+         visible={showBookingModal}
+         transparent
+         animationType="slide"
+         onRequestClose={closeBookingModal}
+       >
+         <KeyboardAvoidingView
+           behavior={Platform.OS === "ios" ? "padding" : undefined}
+           className="flex-1 justify-end bg-black/50"
+         >
+           <View className="bg-white rounded-3xl px-6 pt-6 pb-8">
+             <View className="flex flex-row items-center justify-between">
+               <Text className="text-2xl font-rubik-bold text-black-300">
+                 Book this property
+               </Text>
+               <TouchableOpacity
+                 onPress={closeBookingModal}
+                 className="bg-primary-100 rounded-full size-10 items-center justify-center"
+               >
+                 <Text className="text-primary-300 text-xl">×</Text>
+               </TouchableOpacity>
+             </View>
+
+             <Text className="text-base font-rubik text-black-200 mt-2">
+               Choose your stay details for {property.name}.
+             </Text>
+
+             <Text className="text-sm font-rubik-medium text-black-300 mt-6">
+               Move-in date
+             </Text>
+             <TouchableOpacity
+               onPress={() => setShowDatePicker(true)}
+               className="flex flex-row items-center justify-between border border-primary-200 rounded-2xl px-4 py-3 mt-2"
+             >
+               <Text className="text-base font-rubik text-black-300">
+                 {formatBookingDate(bookingDate)}
+               </Text>
+               <Image source={icons.calendar} className="size-5" />
+             </TouchableOpacity>
+
+             {showDatePicker && Platform.OS !== "web" ? (
+               <DateTimePicker
+                 value={bookingDate}
+                 mode="date"
+                 minimumDate={new Date()}
+                 onChange={handleDateChange}
+               />
+             ) : null}
+
+             <Text className="text-sm font-rubik-medium text-black-300 mt-6">
+               Guests
+             </Text>
+             <TextInput
+               value={guests}
+               onChangeText={(value) =>
+                 setGuests(value.replace(/[^0-9]/g, ""))
+               }
+               keyboardType="number-pad"
+               className="border border-primary-200 rounded-2xl px-4 py-3 mt-2 text-base font-rubik text-black-300"
+               placeholder="1"
+               placeholderTextColor="#8E8E8E"
+             />
+
+             <TouchableOpacity
+               onPress={handleConfirmBooking}
+               disabled={booking}
+               className="bg-primary-300 rounded-full py-4 mt-7 items-center"
+             >
+               {booking ? (
+                 <ActivityIndicator size="small" color="#ffffff" />
+               ) : (
+                 <Text className="text-white font-rubik-medium text-base">
+                   Confirm booking
+                 </Text>
+               )}
+             </TouchableOpacity>
+           </View>
+         </KeyboardAvoidingView>
+       </Modal>
+     </View>
+   );
+ };
+
+ export default Property;

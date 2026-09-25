@@ -1,6 +1,16 @@
+import { useState } from "react";
+import {
+  Image,
+  type ImageResizeMode,
+  type ImageSourcePropType,
+  type ImageStyle,
+  type StyleProp,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import icons from "@/constants/icons";
 import images from "@/constants/images";
-import { Image, Text, TouchableOpacity, View } from "react-native";
 import { PropertyDoc } from "@/lib/appwrite";
 import { useFavorites } from "@/lib/favorites-provider";
 
@@ -11,6 +21,70 @@ interface Props {
 
 export type CardProps = Props;
 
+const propertyImageFallbacks: ImageSourcePropType[] = [
+  images.newYork,
+  images.japan,
+];
+
+function getPropertyImageFallback(id: string): ImageSourcePropType {
+  const match = id.match(/\d+/);
+  const index = match ? Number.parseInt(match[0], 10) : 0;
+  return propertyImageFallbacks[Math.abs(index) % propertyImageFallbacks.length];
+}
+
+function getPropertyImageSource(
+  image: unknown,
+  fallback: ImageSourcePropType
+): ImageSourcePropType {
+  if (typeof image === "number") {
+    return image;
+  }
+
+  if (typeof image === "string" && image.trim()) {
+    return { uri: image };
+  }
+
+  if (typeof image === "object" && image !== null && "uri" in image) {
+    const uri = (image as { uri?: unknown }).uri;
+    if (typeof uri === "string" && uri.trim()) {
+      return { uri };
+    }
+  }
+
+  return fallback;
+}
+
+interface PropertyImageProps {
+  item: { $id: string; image?: unknown };
+  className?: string;
+  style?: StyleProp<ImageStyle>;
+  resizeMode?: ImageResizeMode;
+}
+
+export const PropertyImage = ({
+  item,
+  className,
+  style,
+  resizeMode,
+}: PropertyImageProps) => {
+  const fallback = getPropertyImageFallback(item.$id);
+  const [source, setSource] = useState<ImageSourcePropType>(() =>
+    getPropertyImageSource(item.image, fallback)
+  );
+
+  return (
+    <Image
+      source={source}
+      className={className}
+      style={style}
+      resizeMode={resizeMode}
+      onError={() =>
+        setSource((current) => (current === fallback ? current : fallback))
+      }
+    />
+  );
+};
+
 export const FeaturedCard = ({ item, onPress }: Props) => {
   const { isFavorite, toggleFavorite } = useFavorites();
   const favorited = isFavorite(item.$id);
@@ -20,7 +94,12 @@ export const FeaturedCard = ({ item, onPress }: Props) => {
       onPress={onPress}
       className="flex flex-col items-start w-60 h-80 relative"
     >
-      <Image source={{ uri: item.image }} className="size-full rounded-2xl" />
+      <PropertyImage
+        key={`${item.$id}-${String(item.image)}`}
+        item={item}
+        className="size-full rounded-2xl"
+        resizeMode="cover"
+      />
 
       <Image
         source={images.cardGradient}
@@ -83,10 +162,12 @@ export const Card = ({ item, onPress }: Props) => {
         </Text>
       </View>
 
-      <Image
-        source={{ uri: item.image }}
+      <PropertyImage
+        key={`${item.$id}-${String(item.image)}`}
+        item={item}
         className="w-full rounded-lg"
         style={{ aspectRatio: 4 / 3 }}
+        resizeMode="cover"
       />
 
       <View className="flex flex-col mt-2">
